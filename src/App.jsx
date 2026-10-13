@@ -180,8 +180,8 @@ function InvoiceWorkspace({ role, onSignOut }) {
     getTemplateKey
   ]);
 
-  // For Master Copy JPG only, use the supplied Print Ready template
-  // without the company header. PDF output remains unchanged.
+  // Master Copy JPG uses the print-ready template without the company header.
+  // PDF output and other copy types use their standard templates.
   const generateOutput = useCallback(async () => {
     const templateKey = getTemplateKey();
 

@@ -452,6 +452,14 @@ export async function stampInvoice(
   const activePage =
     pdfDoc.getPages()[0];
 
+  // Office and print-ready master templates place their printed labels 1.1 pt
+  // to the right and 7.3 pt higher than the standard master template.
+  const usesShiftedTemplate =
+    !isChallan &&
+    (selectedType.includes('office') || templateVariant === 'print');
+  const overlayShiftX = usesShiftedTemplate ? 1.1 : 0;
+  const overlayShiftY = usesShiftedTemplate ? 7.3 : 0;
+
   /* ==========================================================
      FONTS
   ========================================================== */
@@ -519,8 +527,8 @@ export async function stampInvoice(
     activePage.drawText(
       sanitized,
       {
-        x: finalX,
-        y,
+        x: finalX + overlayShiftX,
+        y: y + overlayShiftY,
         size,
         font,
         color
@@ -1242,16 +1250,43 @@ export async function stampInvoice(
      AMOUNT IN WORDS
   ========================================================== */
 
-  draw(
-    amountInWords,
-    px(C.words[0]),
-    py(C.words[1]),
-    8,
-    true,
-    false,
-    black,
-    true
-  );
+  const amountWordsFont = fontBoldOblique;
+  const amountWordsSize = 8;
+  // Keep the first line within the marked break point before the totals column.
+  const amountWordsMaxWidth = px(47);
+  const amountWordsLines = [];
+  let amountWordsLine = '';
+
+  for (const word of cleanText(amountInWords).split(/\s+/)) {
+    const candidate = amountWordsLine
+      ? `${amountWordsLine} ${word}`
+      : word;
+
+    if (
+      amountWordsFont.widthOfTextAtSize(candidate, amountWordsSize) <= amountWordsMaxWidth ||
+      !amountWordsLine
+    ) {
+      amountWordsLine = candidate;
+    } else {
+      amountWordsLines.push(amountWordsLine);
+      amountWordsLine = word;
+    }
+  }
+
+  if (amountWordsLine) amountWordsLines.push(amountWordsLine);
+
+  amountWordsLines.slice(0, 2).forEach((line, index) => {
+    draw(
+      line,
+      px(C.words[0]),
+      py(C.words[1] + index * 1.5),
+      amountWordsSize,
+      true,
+      false,
+      black,
+      true
+    );
+  });
 
   /* ==========================================================
      SAVE PDF
