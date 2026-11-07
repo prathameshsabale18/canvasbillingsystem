@@ -10,5 +10,6 @@ export const clientGroupKey = value => String(value || '')
   .replace(/\([^)]*\)/g, ' ')
   .replace(/\b(private|pvt|limited|ltd|llp|incorporated|inc|company|co)\b/g, ' ')
   .replace(/[^a-z0-9]+/g, ' ')
+  .replace(/\s+cha$/, '')
   .replace(/\s+/g, ' ')
   .trim();
