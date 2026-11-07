@@ -3,6 +3,8 @@ import { Activity, AlertCircle, Check, Clock3, FilePlus2, FileText, PackagePlus,
 import { supabase } from '../supabaseClient';
 import WorkspaceSidebar from './WorkspaceSidebar';
 import { getInvoiceDateKey } from '../utils/invoiceDates';
+import { calculateInvoiceReportTotals } from '../utils/invoiceReportPdf';
+import { clientGroupKey, invoiceClientGst, invoiceClientName } from '../utils/clientIdentity';
 
 const ORDER_KEY = 'canvas_client_orders';
 const blankOrder = { clientId: '', requirement: '', quantity: '', neededBy: '', notes: '', status: 'New' };
@@ -17,14 +19,11 @@ const ageInDays = value => {
   const todayTime = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
   return Math.max(0, Math.floor((todayTime - invoiceTime) / 86400000));
 };
-const normalizedValue = value => String(value || '').trim().toLowerCase();
-const invoiceClientName = invoice => String(invoice.client_name || invoice.clients?.client_name || '').trim();
-const invoiceClientGst = invoice => String(invoice.client_gstin || invoice.clients?.gst_no || '').trim();
 const invoiceBelongsToClient = (invoice, client) => {
-  const invoiceName = normalizedValue(invoiceClientName(invoice));
-  const clientName = normalizedValue(client.client_name);
-  const invoiceGst = normalizedValue(invoiceClientGst(invoice));
-  const clientGst = normalizedValue(client.gst_no);
+  const invoiceName = clientGroupKey(invoiceClientName(invoice));
+  const clientName = clientGroupKey(client.client_name);
+  const invoiceGst = String(invoiceClientGst(invoice)).trim().toLowerCase();
+  const clientGst = String(client.gst_no || '').trim().toLowerCase();
   // Firm name is authoritative. GST is only a fallback for legacy invoices
   // that do not carry a client name; this keeps firms sharing a GSTIN separate.
   if (invoiceName && clientName) return invoiceName === clientName;
@@ -51,11 +50,11 @@ export default function ClientsDashboard({ onNavigate, onNewInvoice, activeView 
       supabase.from('invoices').select('*, clients(*)').order('id', { ascending: false })
     ]);
     if (error) setNotice(error.message);
-    const known = new Set((clientRows || []).map(client => `${String(client.client_name || '').trim().toLowerCase()}|${String(client.gst_no || '').trim().toLowerCase()}`));
+    const known = new Set((clientRows || []).map(client => clientGroupKey(client.client_name)));
     const invoiceClients = (invoiceRows || []).reduce((result, invoice) => {
       const name = invoiceClientName(invoice);
       const gst = invoiceClientGst(invoice);
-      const key = `${String(name).trim().toLowerCase()}|${String(gst).trim().toLowerCase()}`;
+      const key = clientGroupKey(name);
       if (name && !known.has(key)) {
         known.add(key);
         result.push({ id: `invoice-client:${name}:${gst}`, client_name: name, gst_no: gst, address: '', source: 'invoice' });
@@ -75,7 +74,14 @@ export default function ClientsDashboard({ onNavigate, onNewInvoice, activeView 
       (result[item.invoice_id] ||= []).push(item);
       return result;
     }, {});
-    setClients([...(clientRows || []), ...invoiceClients]); setInvoices(normalizedInvoices); setInvoiceItems(itemsByInvoice); setLoading(false);
+    const mergedClients = new Map();
+    [...(clientRows || []), ...invoiceClients].forEach(client => {
+      const key = clientGroupKey(client.client_name);
+      if (!mergedClients.has(key)) mergedClients.set(key, client);
+    });
+    setClients([...mergedClients.values()]);
+    setInvoices(normalizedInvoices.map(invoice => ({ ...invoice, items: itemsByInvoice[invoice.id] || [] })));
+    setInvoiceItems(itemsByInvoice); setLoading(false);
   };
   useEffect(() => { refresh(); }, []);
   useEffect(() => { localStorage.setItem(ORDER_KEY, JSON.stringify(orders)); }, [orders]);
@@ -92,7 +98,8 @@ export default function ClientsDashboard({ onNavigate, onNewInvoice, activeView 
   const allPaymentRows = useMemo(() => scopedInvoices.map(invoice => {
       const age = ageInDays(invoice.date || invoice.invoice_date); const status = String(invoice.status || '').toLowerCase();
     const bucket = age !== null && age >= 45 ? 'Overdue' : 'Upcoming';
-    return { ...invoice, age, bucket, value: Number(invoice.grand_total || invoice.amount || 0), paid: status === 'paid' || status === 'successful' };
+    const value = calculateInvoiceReportTotals(invoice).grandTotal;
+    return { ...invoice, age, bucket, value, paid: status === 'paid' || status === 'successful' };
   }).filter(row => !row.paid && row.age !== null), [scopedInvoices]);
   const paymentRows = useMemo(() => allPaymentRows.filter(row => paymentFilter === 'All' || row.bucket === paymentFilter).sort((a, b) => (b.age || 0) - (a.age || 0)), [allPaymentRows, paymentFilter]);
   const dueSummary = useMemo(() => allPaymentRows.reduce((result, invoice) => {
@@ -101,7 +108,7 @@ export default function ClientsDashboard({ onNavigate, onNewInvoice, activeView 
   }, { overdue: 0, upcoming: 0, overdueCount: 0, upcomingCount: 0 }), [allPaymentRows]);
   const selectedPending = useMemo(() => scopedInvoices.reduce((total, invoice) => {
     const status = String(invoice.status || '').toLowerCase();
-    return status === 'paid' || status === 'successful' ? total : total + Number(invoice.grand_total || invoice.amount || 0);
+    return status === 'paid' || status === 'successful' ? total : total + calculateInvoiceReportTotals(invoice).grandTotal;
   }, 0), [scopedInvoices]);
   const selectedPendingCount = useMemo(() => scopedInvoices.filter(invoice => {
     const status = String(invoice.status || '').toLowerCase();
@@ -134,7 +141,7 @@ export default function ClientsDashboard({ onNavigate, onNewInvoice, activeView 
       {selectedClient && <section className="client-focus"><div className="client-focus-head"><div className="client-identity"><div className="client-focus-avatar">{String(selectedClient.client_name || '?').slice(0, 1).toUpperCase()}</div><div><span>CLIENT FOLLOW-UP CENTER</span><h2>{selectedClient.client_name}</h2><small>{selectedClient.gst_no || 'GSTIN not added'}{selectedClient.address ? ` · ${selectedClient.address}` : ''}</small></div></div><button className="ops-secondary" onClick={() => onNewInvoice(selectedClient)}><FilePlus2 size={15} /> Create invoice</button></div><div className="client-focus-metrics"><div><span>Pending amount</span><strong>{money(selectedPending)}</strong></div><div><span>Pending bills</span><strong>{selectedPendingCount}</strong></div><div><span>Items supplied</span><strong>{selectedClientItems.length}</strong></div><div><span>Open requirements</span><strong>{scopedOrders.filter(order => order.status !== 'Completed').length}</strong></div></div></section>}
       {notice && <div className="ops-notice">{notice}<button onClick={() => setNotice('')}><X size={14} /></button></div>}
       <section className="ops-stats"><Stat icon={<AlertCircle size={22} />} label="OVERDUE · 45+ DAYS" value={money(dueSummary.overdue)} hint={`${dueSummary.overdueCount} payment${dueSummary.overdueCount === 1 ? '' : 's'} need immediate action`} tone="red" /><Stat icon={<Clock3 size={20} />} label="UPCOMING · UNDER 45 DAYS" value={money(dueSummary.upcoming)} hint={`${dueSummary.upcomingCount} payment${dueSummary.upcomingCount === 1 ? '' : 's'} within cycle`} tone="green" /><Stat icon={<PackagePlus size={20} />} label="OPEN REQUIREMENTS" value={scopedOrders.filter(order => order.status !== 'Completed').length} hint="Orders still in motion" tone="teal" /><Stat icon={<Check size={20} />} label="COMPLETED REQUIREMENTS" value={scopedOrders.filter(order => order.status === 'Completed').length} hint="Ready for invoicing" tone="green" /></section>
-      {selectedClient && <section className="client-detail-grid"><div className="detail-card combined-detail-card"><div className="detail-card-head"><div><span>CLIENT ACTIVITY</span><h3>All bills, amounts & supplied items</h3></div><strong>{selectedPendingCount} pending · {scopedInvoices.length} total bills</strong></div>{scopedInvoices.length ? <div className="activity-table"><div className="activity-table-head"><span>Bill / date</span><span>Items supplied</span><span>Amount / status</span></div>{scopedInvoices.map(invoice => { const status = String(invoice.status || 'Pending'); const paid = ['paid', 'successful'].includes(status.toLowerCase()); const items = invoiceItems[invoice.id] || invoice.items || []; return <div className="activity-row" key={invoice.id}><div className="activity-bill"><strong>#{invoice.invoice_no || '—'}</strong><span>{invoice.date || invoice.invoice_date || 'No date'}</span></div><div className="activity-items">{items.length ? items.slice(0, 3).map((item, index) => <span key={`${invoice.id}-${index}`}>{item.description || item.item_name || 'Unnamed item'} <b>×{item.quantity || 1}</b></span>) : <span className="muted-item">No line items recorded</span>}{items.length > 3 && <small>+{items.length - 3} more items</small>}</div><div className="activity-amount"><strong>{money(invoice.grand_total || invoice.amount)}</strong><span className={paid ? 'paid-text' : 'pending-text'}>{paid ? 'Paid' : 'Pending'}</span></div></div>; })}</div> : <div className="detail-empty">No bills recorded for this client.</div>}</div></section>}
+      {selectedClient && <section className="client-detail-grid"><div className="detail-card combined-detail-card"><div className="detail-card-head"><div><span>CLIENT ACTIVITY</span><h3>All bills, amounts & supplied items</h3></div><strong>{selectedPendingCount} pending · {scopedInvoices.length} total bills</strong></div>{scopedInvoices.length ? <div className="activity-table"><div className="activity-table-head"><span>Bill / date</span><span>Items supplied</span><span>Amount / status</span></div>{scopedInvoices.map(invoice => { const status = String(invoice.status || 'Pending'); const paid = ['paid', 'successful'].includes(status.toLowerCase()); const items = invoiceItems[invoice.id] || invoice.items || []; const total = calculateInvoiceReportTotals(invoice).grandTotal; return <div className="activity-row" key={invoice.id}><div className="activity-bill"><strong>#{invoice.invoice_no || '—'}</strong><span>{invoice.date || invoice.invoice_date || 'No date'}</span></div><div className="activity-items">{items.length ? items.slice(0, 3).map((item, index) => <span key={`${invoice.id}-${index}`}>{item.description || item.item_name || 'Unnamed item'} <b>×{item.quantity || 1}</b></span>) : <span className="muted-item">No line items recorded</span>}{items.length > 3 && <small>+{items.length - 3} more items</small>}</div><div className="activity-amount"><strong>{money(total)}</strong><span className={paid ? 'paid-text' : 'pending-text'}>{paid ? 'Paid' : 'Pending'}</span></div></div>; })}</div> : <div className="detail-empty">No bills recorded for this client.</div>}</div></section>}
       <section className="ops-grid">
         <div className="ops-card"><div className="card-head"><div><span>INCOMING WORK</span><h2>{selectedClient ? `${selectedClient.client_name}'s requirements` : 'Orders & requirements'}</h2></div><button className="ops-secondary" onClick={openOrderForm}><Plus size={15} /> Add requirement</button></div><div className="ops-toolbar"><label className="ops-search"><Search size={15} /><input value={search} onChange={event => setSearch(event.target.value)} placeholder="Search requirement" /></label><select value={orderFilter} onChange={event => setOrderFilter(event.target.value)}><option>All</option><option>New</option><option>In progress</option><option>Completed</option></select></div>{scopedVisibleOrders.length ? <div>{scopedVisibleOrders.map(order => { const client = clientsById.get(String(order.clientId)); return <div className="requirement-row" key={order.id}><div className="row-icon"><PackagePlus size={16} /></div><div className="row-copy"><strong>{order.requirement}</strong><span>{client?.client_name || 'Unknown client'} {order.quantity && `· Qty ${order.quantity}`}</span>{order.notes && <small>{order.notes}</small>}</div><div className="row-meta">{order.neededBy && <span>Need by {order.neededBy}</span>}<select value={order.status} onChange={event => updateOrderStatus(order.id, event.target.value)}><option>New</option><option>In progress</option><option>Completed</option></select>{order.status === 'Completed' && <button type="button" className="generate-order" onClick={() => generateInvoice(order)}><FilePlus2 size={13} /> Generate invoice</button>}<button type="button" className="delete-order" onClick={() => deleteOrder(order)} title="Delete requirement" aria-label={`Delete ${order.requirement}`}><Trash2 size={14} /></button></div></div>; })}</div> : <Empty icon={<PackagePlus size={26} />} title="No requirements recorded yet" text={selectedClient ? 'Record the first requirement for this client.' : 'Choose a client or record a new requirement.'} onClick={openOrderForm} />}</div>
         <div className={`ops-card payment-card ${paymentFilter === 'Overdue' ? 'overdue-focus' : ''}`}><div className="card-head"><div><span>COLLECTIONS · {selectedClient ? selectedClient.client_name : 'ALL CLIENTS'}</span><h2>{paymentFilter === 'Overdue' ? 'Act on overdue payments' : 'Upcoming payments'}</h2></div><FileText size={18} className="head-icon" /></div><div className="cycle-guide"><Cycle color="red" title="45+ days" text="Overdue — act now" /><Cycle color="green" title="Under 45 days" text="Upcoming payment" /></div><div className="due-toolbar"><strong>{paymentRows.length} {paymentFilter === 'Overdue' ? 'overdue' : 'upcoming'} payment{paymentRows.length === 1 ? '' : 's'}</strong><select value={paymentFilter} onChange={event => setPaymentFilter(event.target.value)}><option value="Overdue">45+ days overdue</option><option value="Upcoming">Upcoming under 45 days</option><option value="All">All unpaid</option></select></div>{loading ? <Empty compact title="Loading payment data…" /> : paymentRows.length ? <div>{paymentRows.slice(0, 8).map(row => <div className="payment-row" key={row.id}><div className={`payment-badge ${row.bucket.toLowerCase()}`}>{row.bucket === 'Overdue' ? <AlertCircle size={18} /> : <Check size={17} />}</div><div className="row-copy"><strong>{row.client_name || 'Unnamed client'}</strong><span>#{row.invoice_no || '—'} · {row.age} days old</span></div><div className="payment-value"><strong>{money(row.value)}</strong><span className={row.bucket.toLowerCase()}>{row.bucket}</span></div></div>)}</div> : <Empty compact icon={<Check size={26} />} title={paymentFilter === 'Overdue' ? 'No overdue payments' : 'No upcoming payments'} text={paymentFilter === 'Overdue' ? 'Everything is within the 45-day payment limit.' : 'No unpaid invoices are currently under 45 days old.'} />}</div>

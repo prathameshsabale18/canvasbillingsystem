@@ -20,6 +20,7 @@ import {
   getInvoiceDateKey
 } from '../utils/invoiceReportPdf';
 import { formatInvoiceDate } from '../utils/invoiceDates';
+import { clientGroupKey, invoiceClientName } from '../utils/clientIdentity';
 import WorkspaceSidebar from './WorkspaceSidebar';
 
 const PAGE_SIZE = 1000;
@@ -50,15 +51,6 @@ const ageInDays = value => {
   return Math.max(0, Math.floor((todayTime - invoiceTime) / 86400000));
 };
 
-const clientGroupKey = value => String(value || '')
-  .normalize('NFKC')
-  .toLowerCase()
-  .replace(/[.,]/g, ' ')
-  .replace(/\b(private|pvt)\s+(limited|ltd)\b/g, ' ')
-  .replace(/\b(limited|ltd)\b/g, ' ')
-  .replace(/\s+/g, ' ')
-  .trim();
-
 export default function OverviewDashboard({
   onNewInvoice,
   onOpenBilling,
@@ -71,6 +63,8 @@ export default function OverviewDashboard({
   const [loading, setLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
   const [chartFilter, setChartFilter] = useState('paid-pending');
+  const [analyticsStatus, setAnalyticsStatus] = useState('all');
+  const [analyticsSearch, setAnalyticsSearch] = useState('');
 
   const fetchInvoices = async () => {
     setLoading(true);
@@ -206,7 +200,7 @@ export default function OverviewDashboard({
           status === 'successful';
 
         const isPending =
-          status === 'pending';
+          !isPaid;
 
         const cgst =
           Number(totals.cgst || 0);
@@ -291,7 +285,7 @@ export default function OverviewDashboard({
     const clientIds = new Map(clients.map(client => [String(client.id), client.client_name]));
 
     invoices.forEach(invoice => {
-      const name = invoice.client_name || invoice.clients?.client_name || 'Unnamed client';
+      const name = invoiceClientName(invoice) || 'Unnamed client';
       const key = clientGroupKey(name);
       const record = clientMap.get(key) || {
         name,
@@ -340,8 +334,7 @@ export default function OverviewDashboard({
           : 0,
         status: client.overdue > 0 ? 'Needs follow-up' : client.pending > 0 ? 'Pending' : 'On track'
       }))
-      .sort((left, right) => (right.overdue - left.overdue) || (right.pending - left.pending) || (right.orders - left.orders))
-      .slice(0, 8);
+      .sort((left, right) => (right.overdue - left.overdue) || (right.pending - left.pending) || (right.orders - left.orders));
     const maximum = Math.max(1, ...clientsByActivity.map(client => client.pending + client.paid));
     const maximumOverdue = Math.max(1, ...clientsByActivity.map(client => client.overdue));
     const maximumOrders = Math.max(1, ...clientsByActivity.map(client => client.orders));
@@ -374,6 +367,17 @@ export default function OverviewDashboard({
       }),
     [invoices]
   );
+
+  const visibleAnalyticsClients = useMemo(() => {
+    const search = analyticsSearch.trim().toLowerCase();
+    return analytics.clients.filter(client => {
+      const matchesStatus = analyticsStatus === 'all'
+        || (analyticsStatus === 'follow-up' && client.status === 'Needs follow-up')
+        || (analyticsStatus === 'pending' && client.pending > 0)
+        || (analyticsStatus === 'on-track' && client.status === 'On track');
+      return matchesStatus && (!search || client.name.toLowerCase().includes(search));
+    });
+  }, [analytics.clients, analyticsSearch, analyticsStatus]);
 
   const pageCount = Math.max(
     1,
@@ -652,6 +656,23 @@ export default function OverviewDashboard({
                 </div>
               </div>
               {analytics.clients.length ? <div className="client-analytics-chart">
+                <div className="analytics-toolbar">
+                  <div className="analytics-status-filter" role="group" aria-label="Client status filter">{[['all', 'All clients'], ['follow-up', 'Needs follow-up'], ['pending', 'Pending'], ['on-track', 'On track']].map(([value, label]) => <button key={value} className={analyticsStatus === value ? 'active' : ''} onClick={() => setAnalyticsStatus(value)}>{label}</button>)}</div>
+                  <input className="analytics-search" value={analyticsSearch} onChange={event => setAnalyticsSearch(event.target.value)} placeholder="Search client" aria-label="Search clients" />
+                </div>
+                <div className="analytics-view-tabs" role="group" aria-label="Analytics metric filter"><button className={chartFilter === 'paid-pending' ? 'active' : ''} onClick={() => setChartFilter('paid-pending')}>Paid & pending</button><button className={chartFilter === 'overdue' ? 'active' : ''} onClick={() => setChartFilter('overdue')}>Overdue</button><button className={chartFilter === 'orders' ? 'active' : ''} onClick={() => setChartFilter('orders')}>Orders</button></div>
+                <div className="analytics-table" role="table" aria-label="Client analytics">
+                  <div className="analytics-table-row analytics-table-head" role="row"><span>Client</span><span>Bills</span><span>Orders</span><span>Paid</span><span>Pending</span><span>Overdue</span><span>Status</span></div>
+                  {visibleAnalyticsClients.map(client => {
+                    const initials = client.name.split(/\s+/).map(part => part[0]).join('').slice(0, 2).toUpperCase();
+                    return <div className={`analytics-table-row ${chartFilter === 'overdue' && client.overdue ? 'highlight-overdue' : ''}`} role="row" key={client.name}>
+                      <div className="analytics-client-cell"><span className="client-avatar">{initials}</span><strong title={client.name}>{client.name}</strong></div>
+                      <span className="analytics-number">{client.bills}</span><span className="analytics-number">{client.orders}</span><span className="analytics-money paid-value">{money(client.paid)}</span><span className="analytics-money pending-value">{money(client.pending)}</span><span className={`analytics-money ${client.overdue ? 'overdue-value' : 'clear-value'}`}>{money(client.overdue)}</span>
+                      <span className={`client-status ${client.status === 'Needs follow-up' ? 'needs-follow-up' : client.status === 'Pending' ? 'watch-status' : 'on-track'}`}>{client.status}</span>
+                    </div>;
+                  })}
+                </div>
+                {!visibleAnalyticsClients.length && <div className="analytics-empty">No clients match this filter.</div>}
                 <div className="chart-filter" role="group" aria-label="Client statistics filter"><button className={chartFilter === 'paid-pending' ? 'active' : ''} onClick={() => setChartFilter('paid-pending')}>Paid & pending</button><button className={chartFilter === 'overdue' ? 'active' : ''} onClick={() => setChartFilter('overdue')}>Overdue</button><button className={chartFilter === 'orders' ? 'active' : ''} onClick={() => setChartFilter('orders')}>Orders</button></div>
                 <div className="chart-legend">{chartFilter === 'paid-pending' && <><span><i className="legend-paid" />Paid</span><span><i className="legend-pending" />Pending</span></>}{chartFilter === 'overdue' && <span><i className="legend-overdue" />Overdue 45+ days</span>}{chartFilter === 'orders' && <span><i className="legend-orders" />Orders</span>}</div>
                 <div className="chart-rows" style={{ gridTemplateColumns: `repeat(${Math.max(analytics.clients.length, 1)}, minmax(0, 1fr))` }}>{analytics.clients.map(client => {
@@ -1139,6 +1160,10 @@ const referenceStyles = `
 `;
 
 const oneLineChartStyles = `
+  .client-analytics-chart>.chart-filter,.client-analytics-chart>.chart-legend,.client-analytics-chart>.chart-rows{display:none}
+  .analytics-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}.analytics-status-filter,.analytics-view-tabs{display:flex;gap:4px;padding:3px;border:1px solid #e3ebef;border-radius:8px;background:#f5f8fa}.analytics-status-filter{flex-wrap:wrap}.analytics-status-filter button,.analytics-view-tabs button{border:0;border-radius:6px;padding:7px 10px;background:transparent;color:#718096;font-size:10px;font-weight:800;cursor:pointer}.analytics-status-filter button.active,.analytics-view-tabs button.active{background:#172f3d;color:#fff;box-shadow:0 2px 5px rgba(23,47,61,.16)}.analytics-search{width:170px;padding:8px 10px;border:1px solid #dce6ea;border-radius:8px;background:#fff;color:#26384b;font-size:11px;outline:none}.analytics-search:focus{border-color:#77c9e5;box-shadow:0 0 0 3px rgba(123,199,232,.16)}.analytics-view-tabs{width:max-content;margin-bottom:10px}.analytics-table{overflow:hidden;border:1px solid #e5edef;border-radius:11px;background:#fff}.analytics-table-row{display:grid;grid-template-columns:minmax(180px,1.7fr) .55fr .65fr 1.2fr 1.2fr 1.2fr 1.05fr;align-items:center;gap:10px;min-height:52px;padding:8px 12px;border-top:1px solid #edf2f3;color:#34445a;font-size:11px}.analytics-table-row:first-child{border-top:0}.analytics-table-head{min-height:34px;background:#f6fafb;color:#8593a1;font-size:9px;font-weight:900;letter-spacing:.06em;text-transform:uppercase}.analytics-table-row:not(.analytics-table-head):hover{background:#fbfefe}.analytics-table-row.highlight-overdue{background:#fff8f8}.analytics-client-cell{display:flex;align-items:center;gap:9px;min-width:0}.analytics-client-cell strong{overflow:hidden;color:#1f3044;font-size:12px;text-overflow:ellipsis;white-space:nowrap}.analytics-number,.analytics-money{font-variant-numeric:tabular-nums}.analytics-money{font-size:10px;font-weight:800;white-space:nowrap}.analytics-money.paid-value{color:#329fc8}.analytics-money.pending-value{color:#087d73}.analytics-table-row .client-status{justify-self:start;margin-left:0;white-space:nowrap}.analytics-table-row .client-avatar{width:28px;height:28px;flex-basis:28px}
+  @media(max-width:900px){.analytics-table{overflow-x:auto}.analytics-table-row{min-width:820px}.analytics-toolbar{align-items:flex-start;flex-direction:column}.analytics-search{width:100%}}
+  @media(max-width:560px){.analytics-status-filter button,.analytics-view-tabs button{padding:6px 7px;font-size:9px}.analytics-view-tabs{width:100%}.analytics-view-tabs button{flex:1}}
   .client-analytics-chart{overflow:hidden}.chart-rows{display:grid;gap:8px;align-items:stretch;overflow:hidden;padding:6px 2px 10px}.chart-row{min-width:0;padding:8px 4px}.chart-track{height:150px;gap:3px;border-radius:5px}.chart-bar{width:14px;max-width:14px;align-self:center;border-radius:4px 4px 0 0}.paid-bar{background:#7bc7e8}.pending-bar{background:#087d73}.overdue-marker{width:14px!important;background:#f05b62}.orders-bar{background:#6c63c9}.legend-pending{background:#087d73!important}.performance-pending{background:#087d73!important}.chart-axis{padding:0 2px}.chart-values{text-align:center;gap:3px}.chart-values strong{font-size:9px}.chart-client-top{justify-content:center}.chart-client strong{max-width:100%;text-align:center}.chart-client small,.client-status{margin-left:0;display:block;text-align:center}.chart-client small{font-size:8px}.chart-status{margin-inline:auto}
   .chart-filter{display:inline-flex;gap:4px;margin-bottom:10px;padding:3px;border:1px solid #e3ebef;border-radius:8px;background:#f5f8fa}.chart-filter button{border:0;border-radius:6px;padding:6px 9px;background:transparent;color:#718096;font-size:10px;font-weight:800;cursor:pointer}.chart-filter button.active{background:#172f3d;color:#fff;box-shadow:0 2px 5px rgba(23,47,61,.16)}
   @media(max-width:700px){.chart-row{padding-inline:2px}.chart-track{height:125px}.chart-bar{width:10px;max-width:10px}.chart-client strong{font-size:10px}.chart-values small{font-size:7px}.chart-values strong{font-size:8px}}
