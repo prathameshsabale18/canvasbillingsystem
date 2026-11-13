@@ -6,7 +6,7 @@ export default function WorkspaceSidebar({ activeView, onNavigate }) {
     { id: 'overview', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'clients', label: 'Clients', icon: UsersRound },
     { id: 'billing', label: 'Billing', icon: FileSpreadsheet },
-    { id: 'database', label: 'Database', icon: Database },
+    { id: 'database', label: 'Operations', icon: Database },
     { id: 'generator', label: 'Invoice Generator', icon: FileSpreadsheet },
   ];
 
