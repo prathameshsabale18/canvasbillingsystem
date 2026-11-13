@@ -12,7 +12,7 @@ import AIExtractor from './AIExtractor';
 import { MultiProductDropdown } from './MultiProductDropdown';
 import { supabase } from '../supabaseClient';
 import { calculateItemAmount } from '../utils/calculations';
-import { clientGroupKey } from '../utils/clientIdentity';
+import { clientGst, clientGroupKey } from '../utils/clientIdentity';
 
 // ============================================================
 // TOTAL SQFT / NOS DISPLAY
@@ -113,7 +113,7 @@ export default function InvoiceForm({
           const uniqueClients = new Map();
           data.forEach(client => {
             const key = clientGroupKey(client.client_name);
-            if (!uniqueClients.has(key)) uniqueClients.set(key, client);
+            if (!uniqueClients.has(key)) uniqueClients.set(key, { ...client, gst_no: clientGst(client) });
           });
           setClientPresets([...uniqueClients.values()]);
         }

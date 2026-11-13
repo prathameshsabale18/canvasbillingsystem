@@ -1,7 +1,20 @@
+const MANTHAN_GSTIN = '27AJKPJ5733E1Z7';
+
+const correctedGstForClient = name =>
+  /\bmanthan\s+architects\b/i.test(String(name || ''))
+    ? MANTHAN_GSTIN
+    : '';
+
 export const invoiceClientName = invoice =>
   String(invoice?.clients?.client_name || invoice?.client_name || '').trim();
 
+export const clientGst = client => {
+  const name = client?.client_name || client?.name || '';
+  return correctedGstForClient(name) || String(client?.gst_no || '').trim();
+};
+
 export const invoiceClientGst = invoice =>
+  correctedGstForClient(invoiceClientName(invoice)) ||
   String(invoice?.client_gstin || invoice?.clients?.gst_no || '').trim();
 
 export const clientGroupKey = value => String(value || '')

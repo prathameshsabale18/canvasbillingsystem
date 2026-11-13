@@ -112,7 +112,8 @@ export async function downloadInvoiceReportPDF(
   startDate,
   endDate,
   useProvidedList = false,
-  periodLabel = ''
+  periodLabel = '',
+  reportTitle = 'Reports'
 ) {
   /*
    * When useProvidedList is true:
@@ -444,7 +445,7 @@ export async function downloadInvoiceReportPDF(
     (page) => {
       drawText(
         page,
-        'CANVAS CREATION',
+        reportTitle || 'Reports',
         margin,
         PAGE_HEIGHT -
           margin -

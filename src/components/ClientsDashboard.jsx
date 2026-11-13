@@ -4,7 +4,7 @@ import { supabase } from '../supabaseClient';
 import WorkspaceSidebar from './WorkspaceSidebar';
 import { getInvoiceDateKey } from '../utils/invoiceDates';
 import { calculateInvoiceReportTotals } from '../utils/invoiceReportPdf';
-import { clientGroupKey, invoiceClientGst, invoiceClientName } from '../utils/clientIdentity';
+import { clientGst, clientGroupKey, invoiceClientGst, invoiceClientName } from '../utils/clientIdentity';
 
 const ORDER_KEY = 'canvas_client_orders';
 const blankOrder = { clientId: '', requirement: '', quantity: '', neededBy: '', notes: '', status: 'New' };
@@ -57,7 +57,7 @@ export default function ClientsDashboard({ onNavigate, onNewInvoice, activeView 
       const key = clientGroupKey(name);
       if (name && !known.has(key)) {
         known.add(key);
-        result.push({ id: `invoice-client:${name}:${gst}`, client_name: name, gst_no: gst, address: '', source: 'invoice' });
+      result.push({ id: `invoice-client:${name}:${gst}`, client_name: name, gst_no: clientGst({ client_name: name, gst_no: gst }), address: '', source: 'invoice' });
       }
       return result;
     }, []);
@@ -77,7 +77,7 @@ export default function ClientsDashboard({ onNavigate, onNewInvoice, activeView 
     const mergedClients = new Map();
     [...(clientRows || []), ...invoiceClients].forEach(client => {
       const key = clientGroupKey(client.client_name);
-      if (!mergedClients.has(key)) mergedClients.set(key, client);
+      if (!mergedClients.has(key)) mergedClients.set(key, { ...client, gst_no: clientGst(client) });
     });
     setClients([...mergedClients.values()]);
     setInvoices(normalizedInvoices.map(invoice => ({ ...invoice, items: itemsByInvoice[invoice.id] || [] })));

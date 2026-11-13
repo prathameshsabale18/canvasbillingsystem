@@ -1,11 +1,12 @@
 import React from 'react';
-import { FileSpreadsheet, LayoutDashboard, Settings, UsersRound } from 'lucide-react';
+import { Database, FileSpreadsheet, LayoutDashboard, Settings, UsersRound } from 'lucide-react';
 
 export default function WorkspaceSidebar({ activeView, onNavigate }) {
   const items = [
     { id: 'overview', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'clients', label: 'Clients', icon: UsersRound },
     { id: 'billing', label: 'Billing', icon: FileSpreadsheet },
+    { id: 'database', label: 'Database', icon: Database },
     { id: 'generator', label: 'Invoice Generator', icon: FileSpreadsheet },
   ];
 

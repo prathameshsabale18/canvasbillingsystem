@@ -3,6 +3,7 @@ import InvoiceForm from './components/InvoiceForm';
 import Dashboard from './components/Dashboard';
 import OverviewDashboard from './components/OverviewDashboard';
 import ClientsDashboard from './components/ClientsDashboard';
+import DatabaseDashboard from './components/DatabaseDashboard';
 import WorkspaceSidebar from './components/WorkspaceSidebar';
 import { calculateTotals } from './utils/calculations';
 import { stampInvoice } from './utils/pdfStamper';
@@ -11,6 +12,7 @@ import { saveInvoiceToDatabase } from './utils/saveInvoice';
 import { convertPdfToJpeg } from './utils/invoiceImage';
 import { saveInvoicePdf } from './utils/invoicePdfStorage';
 import { getTodayInvoiceDate } from './utils/invoiceDates';
+import { clientGst } from './utils/clientIdentity';
 import { supabase } from './supabaseClient';
 import Login from './components/Login';
 import download from 'downloadjs';
@@ -532,7 +534,7 @@ function InvoiceWorkspace({ role, onSignOut }) {
                 setInvoiceData(prev => ({
                   ...prev,
                   clientName: client.client_name || '',
-                  clientGstin: client.gst_no || '',
+                  clientGstin: clientGst(client),
                   clientAddress: client.address || ''
                 }));
               }
@@ -553,7 +555,7 @@ function InvoiceWorkspace({ role, onSignOut }) {
               setInvoiceData(prev => ({
                 ...prev,
                 clientName: client?.client_name || '',
-                clientGstin: client?.gst_no || '',
+                clientGstin: client ? clientGst(client) : '',
                 clientAddress: client?.address || ''
               }));
               if (order) {
@@ -578,6 +580,15 @@ function InvoiceWorkspace({ role, onSignOut }) {
             }
             onNavigate={navigateToTab}
           />
+
+        ) : activeTab === 'database' ? (
+
+          <div style={{ display: 'flex', minHeight: 'calc(100vh - 60px)', width: '100%', background: '#f7f9fc' }}>
+            <WorkspaceSidebar activeView="database" onNavigate={navigateToTab} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <DatabaseDashboard activeView="database" />
+            </div>
+          </div>
 
         ) : (
 

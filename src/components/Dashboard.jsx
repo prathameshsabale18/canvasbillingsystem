@@ -624,6 +624,27 @@ export default function Dashboard({
       reportRange.start <= reportRange.end
     );
 
+  const reportTitle = useMemo(() => {
+    const parts = [];
+    const search = searchTerm.trim();
+
+    if (search) parts.push(`Search: ${search}`);
+    if (statusFilter !== 'All') parts.push(statusFilter);
+
+    if (reportType === 'month' && reportMonth) {
+      const [year, month] = reportMonth.split('-').map(Number);
+      const label = new Date(year, month - 1, 1).toLocaleDateString('en-IN', {
+        month: 'long',
+        year: 'numeric'
+      });
+      parts.push(label);
+    } else if (reportType === 'range' && reportRange.start && reportRange.end) {
+      parts.push(`${formatInvoiceDate(reportRange.start)} to ${formatInvoiceDate(reportRange.end)}`);
+    }
+
+    return parts.length ? parts.join(' · ') : 'Reports';
+  }, [searchTerm, statusFilter, reportType, reportMonth, reportRange]);
+
   const clearFilters = () => {
     setSearchTerm('');
     setStatusFilter('All');
@@ -971,7 +992,9 @@ export default function Dashboard({
   filteredAndSortedInvoices,
   reportRange.start,
   reportRange.end,
-  true
+  true,
+  reportType === 'all' ? 'All dates' : reportTitle,
+  reportTitle
 );
 
       } catch (err) {
