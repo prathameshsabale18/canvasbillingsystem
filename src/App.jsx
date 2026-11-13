@@ -59,10 +59,7 @@ const generateNextInvoiceNumber = async () => {
 };
 
 function InvoiceWorkspace({ role, onSignOut }) {
-  const [activeTab, setActiveTab] = useState(() => {
-    const savedTab = localStorage.getItem('canvas_active_tab');
-    return savedTab === 'dashboard' ? 'overview' : savedTab || 'overview';
-  });
+  const [activeTab, setActiveTab] = useState('overview');
 
   const isChallan = false;
   const [previewUrl, setPreviewUrl] = useState(null);
@@ -84,9 +81,36 @@ function InvoiceWorkspace({ role, onSignOut }) {
 
   const prevUrlRef = useRef(null);
 
+  useEffect(() => {
+    const validTabs = ['overview', 'clients', 'billing', 'database', 'generator'];
+    window.history.replaceState(
+      { canvasBill: true, tab: 'overview' },
+      '',
+      window.location.href
+    );
+    localStorage.setItem('canvas_active_tab', 'overview');
+
+    const handleBrowserNavigation = event => {
+      const nextTab = event.state?.canvasBill && validTabs.includes(event.state.tab)
+        ? event.state.tab
+        : 'overview';
+      setActiveTab(nextTab);
+      localStorage.setItem('canvas_active_tab', nextTab);
+    };
+
+    window.addEventListener('popstate', handleBrowserNavigation);
+    return () => window.removeEventListener('popstate', handleBrowserNavigation);
+  }, []);
+
   const navigateToTab = (tab) => {
+    if (tab === activeTab) return;
     setActiveTab(tab);
     localStorage.setItem('canvas_active_tab', tab);
+    window.history.pushState(
+      { canvasBill: true, tab },
+      '',
+      window.location.href
+    );
   };
 
   const [invoiceData, setInvoiceData] = useState({
